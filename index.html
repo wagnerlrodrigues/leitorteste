@@ -1,168 +1,115 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Câmera + OCR + QR (demo)</title>
+<meta charset="UTF-8">
+<title>Leitor de Cartão-Resposta</title>
+<script async src="https://docs.opencv.org/4.x/opencv.js"></script>
 <style>
-  body{font-family:system-ui,Arial;margin:12px;color:#111}
-  video, canvas{max-width:100%;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,0.12)}
-  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-  #controls{margin-top:8px}
-  button{padding:8px 12px;border-radius:8px;border:1px solid #ccc;background:#fff}
-  pre{background:#111;color:#fff;padding:12px;border-radius:8px;overflow:auto}
+  body{font-family:Arial;margin:20px}
+  canvas{max-width:100%}
 </style>
 </head>
 <body>
-<h1>Camera → QR + OCR (demo)</h1>
-<p>Abra no celular (HTTPS). Aponte a câmera para um QR ou texto. Pressione "Capturar e OCR" para extrair texto.</p>
 
-<div class="row">
-  <video id="video" autoplay playsinline></video>
-  <canvas id="canvas" style="display:none"></canvas>
-</div>
+<h2>Leitor de Cartão-Resposta</h2>
+<input type="file" id="fileInput" accept="image/*">
 
-<div id="controls" class="row">
-  <button id="startBtn">Abrir câmera</button>
-  <button id="stopBtn" disabled>Parar</button>
-  <button id="captureBtn" disabled>Capturar e OCR</button>
-  <label style="margin-left:12px">QR detectado: <span id="qrResult">—</span></label>
-</div>
+<br><br>
+<canvas id="canvas"></canvas>
 
-<h3>Resultado OCR</h3>
-<pre id="ocrOutput">—</pre>
-
-<!-- libs -->
-<!-- jsQR -->
-<script src="https://unpkg.com/jsqr/dist/jsQR.js"></script>
-<!-- Tesseract.js (versão 2.x/3.x via unpkg) -->
-<script src="https://unpkg.com/tesseract.js@v2.1.5/dist/tesseract.min.js"></script>
+<pre id="output"></pre>
 
 <script>
-(async ()=> {
-  const video = document.getElementById('video');
-  const canvas = document.getElementById('canvas');
-  const ctx = canvas.getContext('2d');
-  const startBtn = document.getElementById('startBtn');
-  const stopBtn = document.getElementById('stopBtn');
-  const captureBtn = document.getElementById('captureBtn');
-  const qrResult = document.getElementById('qrResult');
-  const ocrOutput = document.getElementById('ocrOutput');
+document.getElementById("fileInput").addEventListener("change", function(e){
+    const file = e.target.files[0];
+    if (!file) return;
 
-  let stream = null;
-  let scanningInterval = null;
+    let img = new Image();
+    img.onload = () => process(img);
+    img.src = URL.createObjectURL(file);
+});
 
-  async function startCamera(){
-    try{
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' },
-        audio: false
-      });
-      video.srcObject = stream;
-      await video.play();
-      captureBtn.disabled = false;
-      stopBtn.disabled = false;
-      startBtn.disabled = true;
+function process(img){
+    let canvas = document.getElementById("canvas");
+    let ctx = canvas.getContext("2d");
 
-      // ajustar canvas ao tamanho do vídeo
-      canvas.width = video.videoWidth || 1280;
-      canvas.height = video.videoHeight || 720;
+    canvas.width = img.width;
+    canvas.height = img.height;
+    ctx.drawImage(img,0,0);
 
-      // iniciar verificação de QR a cada 500ms (não todo frame)
-      scanningInterval = setInterval(scanFrameForQR, 500);
-    } catch (err) {
-      alert('Erro ao acessar câmera: ' + err.message);
-    }
-  }
+    // Carrega em Mat
+    let src = cv.imread(canvas);
+    let gray = new cv.Mat();
+    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
 
-  function stopCamera(){
-    if (scanningInterval) { clearInterval(scanningInterval); scanningInterval = null; }
-    if (stream){
-      stream.getTracks().forEach(t => t.stop());
-      stream = null;
-    }
-    video.pause();
-    video.srcObject = null;
-    startBtn.disabled = false;
-    stopBtn.disabled = true;
-    captureBtn.disabled = true;
-    qrResult.textContent = '—';
-  }
+    // Binarizar
+    let th = new cv.Mat();
+    cv.threshold(gray, th, 0, 255, cv.THRESH_BINARY_INV + cv.THRESH_OTSU);
 
-  function scanFrameForQR(){
-    if (!video || video.readyState !== 4) return;
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const code = jsQR(imgData.data, imgData.width, imgData.height, { inversionAttempts: "attemptBoth" });
-    if (code){
-      qrResult.textContent = code.data;
-      // desenhar quadro (opcional)
-      drawBoundingBox(code.location);
-    } else {
-      qrResult.textContent = '—';
-    }
-  }
+    // --- CONFIGURAÇÃO DO CARTÃO ---
+    const QUESTOES = 40;
+    const ALTERNATIVAS = 4;
 
-  function drawBoundingBox(loc){
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = 'red';
-    ctx.beginPath();
-    ctx.moveTo(loc.topLeftCorner.x, loc.topLeftCorner.y);
-    ctx.lineTo(loc.topRightCorner.x, loc.topRightCorner.y);
-    ctx.lineTo(loc.bottomRightCorner.x, loc.bottomRightCorner.y);
-    ctx.lineTo(loc.bottomLeftCorner.x, loc.bottomLeftCorner.y);
-    ctx.closePath();
-    ctx.stroke();
-  }
+    // ÁREA onde ficam as bolhas (AJUSTAR FINALE SE QUISER)
+    const xStart = img.width * 0.12; 
+    const xEnd   = img.width * 0.88;
+    const yStart = img.height * 0.32; 
+    const yEnd   = img.height * 0.90;
 
-  async function captureAndOCR(){
-    if (!video || video.readyState !== 4) return alert('Vídeo não pronto');
-    // desenhar frame atual no canvas (pode ajustar área para reduzir processamento)
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const colWidth = (xEnd - xStart) / 4;  
+    const rowHeight = (yEnd - yStart) / (QUESTOES/4);
 
-    // opcional: recortar região central para melhorar OCR
-    const w = canvas.width, h = canvas.height;
-    const cropW = Math.floor(w * 0.9), cropH = Math.floor(h * 0.25);
-    const sx = Math.floor((w - cropW)/2), sy = Math.floor((h - cropH)/2);
+    let respostas = {};
 
-    const cropped = ctx.getImageData(sx, sy, cropW, cropH);
-    // criar um canvas temporário para enviar para o Tesseract
-    const tmp = document.createElement('canvas');
-    tmp.width = cropW; tmp.height = cropH;
-    tmp.getContext('2d').putImageData(cropped, 0, 0);
+    let q = 1;
 
-    ocrOutput.textContent = 'Processando OCR... aguarde';
-    try {
-      const dataUrl = tmp.toDataURL('image/png');
-      // usar Tesseract
-      const worker = Tesseract.createWorker({
-        logger: m => {
-          // opcional: mostrar progresso
-          // console.log(m);
+    for (let col = 0; col < 4; col++){
+        for (let linha = 0; linha < QUESTOES/4; linha++){
+            
+            // posição base da questão
+            let baseX = xStart + col * colWidth;
+            let baseY = yStart + linha * rowHeight;
+
+            // 4 bolhas A/B/C/D
+            let alternativas = ["A","B","C","D"];
+            let preenchimentos = [];
+
+            for (let a = 0; a < ALTERNATIVAS; a++){
+                // bolha horizontalmente espaçada
+                let bx = baseX + (a * (colWidth / 4));
+                let by = baseY + rowHeight*0.4;
+
+                let bw = colWidth/4.2;
+                let bh = rowHeight*0.6;
+
+                let roi = th.roi(new cv.Rect(bx, by, bw, bh));
+
+                let preto = cv.countNonZero(roi);
+                preenchimentos.push(preto);
+
+                roi.delete();
+            }
+
+            // maior preenchimento = alternativa marcada
+            let maxValue = Math.max(...preenchimentos);
+            let idx = preenchimentos.indexOf(maxValue);
+
+            // limiar mínimo pra considerar marcado
+            if(maxValue < 150){  
+                respostas[q] = "—"; // deixada em branco
+            }else{
+                respostas[q] = alternativas[idx];
+            }
+            q++;
         }
-      });
-      await worker.load();
-      await worker.loadLanguage('por+eng');
-      await worker.initialize('por+eng');
-      const { data: { text } } = await worker.recognize(dataUrl);
-      ocrOutput.textContent = text.trim() || '[não detectado]';
-      await worker.terminate();
-    } catch (err){
-      ocrOutput.textContent = 'Erro OCR: ' + err.message;
     }
-  }
 
-  startBtn.addEventListener('click', startCamera);
-  stopBtn.addEventListener('click', stopCamera);
-  captureBtn.addEventListener('click', captureAndOCR);
+    document.getElementById("output").textContent =
+        JSON.stringify(respostas, null, 2);
 
-  // fechar câmera ao sair da página
-  window.addEventListener('pagehide', stopCamera);
-})();
+    src.delete(); gray.delete(); th.delete();
+}
 </script>
+
 </body>
 </html>
