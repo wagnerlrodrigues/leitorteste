@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Gerador de Questões</title>
+<style>
+    body {
+        font-family: Arial, sans-serif;
+        background: #f2f2f2;
+        margin: 0;
+        padding: 20px;
+        display: flex;
+        justify-content: center;
+    }
+
+    .container {
+        width: 100%;
+        max-width: 900px;
+        background: #fff;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    }
+
+    h2 {
+        margin-top: 0;
+    }
+
+    .block {
+        margin-bottom: 25px;
+        padding-bottom: 20px;
+        border-bottom: 1px solid #ccc;
+    }
+
+    label {
+        font-weight: bold;
+        display: block;
+        margin: 10px 0 5px;
+    }
+
+    input[type="text"], textarea {
+        width: 100%;
+        padding: 10px;
+        border: 1px solid #ccc;
+        border-radius: 5px;
+        font-size: 16px;
+    }
+
+    input[type="file"] {
+        margin-top: 5px;
+    }
+
+    button {
+        padding: 10px 20px;
+        background: #0066ff;
+        color: #fff;
+        border: none;
+        cursor: pointer;
+        border-radius: 6px;
+        font-size: 16px;
+        margin-top: 10px;
+    }
+
+    button:hover {
+        background: #004fcc;
+    }
+
+    .alternativa {
+        background: #eef2ff;
+        padding: 10px;
+        border-radius: 5px;
+        margin-bottom: 10px;
+    }
+
+    #preview {
+        width: 1080px;
+        background: #fff;
+        padding: 20px;
+        border-radius: 10px;
+        border: 1px solid #ddd;
+        margin-top: 30px;
+    }
+
+    .item, .alt {
+        margin-bottom: 15px;
+    }
+</style>
+</head>
+<body>
+<div class="container">
+
+    <h2>Gerador de Questões</h2>
+
+    <div class="block">
+        <h3>Itens da Questão</h3>
+        <div>
+            <label>Item 1</label>
+            <input type="text" id="item1_text" placeholder="Texto opcional">
+            <input type="file" id="item1_img" accept="image/*">
+        </div>
+        <div>
+            <label>Item 2</label>
+            <input type="text" id="item2_text" placeholder="Texto opcional">
+            <input type="file" id="item2_img" accept="image/*">
+        </div>
+        <div>
+            <label>Item 3</label>
+            <input type="text" id="item3_text" placeholder="Texto opcional">
+            <input type="file" id="item3_img" accept="image/*">
+        </div>
+    </div>
+
+    <div class="block">
+        <h3>Alternativas</h3>
+        <div id="alternativas"></div>
+        <button onclick="addAlternativa()">Adicionar alternativa</button>
+    </div>
+
+    <button onclick="gerarPreview()">Gerar Pré-visualização</button>
+    <button onclick="exportarJPG()">Exportar JPG</button>
+
+    <div id="preview"></div>
+
+</div>
+
+<script>
+let altCount = 0;
+
+function addAlternativa() {
+    const container = document.getElementById("alternativas");
+    const letra = String.fromCharCode(97 + altCount);
+
+    const div = document.createElement("div");
+    div.className = "alternativa";
+    div.innerHTML = `
+        <label>Alternativa ${letra.toUpperCase()}</label>
+        <input type="text" id="alt_text_${altCount}" placeholder="Texto opcional">
+        <input type="file" id="alt_img_${altCount}" accept="image/*">
+    `;
+
+    container.appendChild(div);
+    altCount++;
+}
+
+function carregarImagem(input) {
+    return new Promise(resolve => {
+        if (!input.files || !input.files[0]) return resolve(null);
+        const reader = new FileReader();
+        reader.onload = e => resolve(e.target.result);
+        reader.readAsDataURL(input.files[0]);
+    });
+}
+
+async function gerarPreview() {
+    const preview = document.getElementById("preview");
+    preview.innerHTML = "";
+
+    const itens = [];
+    for (let i = 1; i <= 3; i++) {
+        const txt = document.getElementById(`item${i}_text`).value;
+        const img = await carregarImagem(document.getElementById(`item${i}_img`));
+        itens.push({txt, img});
+    }
+
+    itens.forEach(it => {
+        if (it.txt) preview.innerHTML += `<div class='item'>${it.txt}</div>`;
+        if (it.img) preview.innerHTML += `<img src='${it.img}' style='max-width:100%; margin-bottom:15px;'>`;
+    });
+
+    for (let i = 0; i < altCount; i++) {
+        const txt = document.getElementById(`alt_text_${i}`).value;
+        const img = await carregarImagem(document.getElementById(`alt_img_${i}`));
+        const letra = String.fromCharCode(97 + i).toUpperCase();
+
+        preview.innerHTML += `<div class='alt'><strong>${letra})</strong> ${txt || ''}</div>`;
+        if (img) preview.innerHTML += `<img src='${img}' style='max-width:100%; margin-bottom:15px;'>`;
+    }
+}
+
+function exportarJPG() {
+    html2canvas(document.getElementById("preview"), {width:1080}).then(canvas => {
+        const link = document.createElement("a");
+        link.download = "questao.jpg";
+        link.href = canvas.toDataURL("image/jpeg", 0.9);
+        link.click();
+    });
+}
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+</body>
+</html>
